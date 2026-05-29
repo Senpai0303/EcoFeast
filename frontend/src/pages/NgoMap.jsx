@@ -1,98 +1,86 @@
-import React, { useState, useEffect } from 'react';
-import axios from 'axios';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
-import L from 'leaflet';
-import icon from 'leaflet/dist/images/marker-icon.png';
-import iconShadow from 'leaflet/dist/images/marker-shadow.png';
+import React, { useState, useEffect } from "react";
+import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 
-let DefaultIcon = L.icon({ iconUrl: icon, shadowUrl: iconShadow, iconAnchor: [12, 41] });
-L.Marker.prototype.options.icon = DefaultIcon;
-
-// Helper component to center map on user's location
-function LocationMarker() {
+function AutoZoom({ location }) {
   const map = useMap();
-  useEffect(() => {
-    map.locate().on("locationfound", function (e) {
-      map.flyTo(e.latlng, map.getZoom());
-    });
-  }, [map]);
+  if (location) {
+    map.setView([location.lat, location.lng], 14);
+  }
   return null;
 }
 
-function NgoMap() {
-    const [donations, setDonations] = useState([]);
+export default function NgoMap() {
+  const [items, setItems] = useState([]);
+  const [selectedLocation, setSelectedLocation] = useState(null);
+  const [searchTerm, setSearchTerm] = useState("");
 
-    useEffect(() => { fetchDonations(); }, []);
+  useEffect(() => {
+    fetch("http://localhost:5000/api/inventory")
+      .then(res => res.json())
+      .then(data => setItems(data));
+  }, []);
 
-    const fetchDonations = async () => {
-        try {
-            const res = await axios.get('http://localhost:5000/api/inventory');
-            // Show both Available and Reserved items
-            setDonations(res.data.filter(item => item.status !== 'Picked Up'));
-        } catch (error) { console.error("Error fetching map data", error); }
-    };
-
-    const reserveItem = async (id) => {
-        try {
-            await axios.put(`http://localhost:5000/api/inventory/${id}/reserve`);
-            fetchDonations(); 
-        } catch (error) { console.error("Error reserving item", error); }
-    };
-
-    const pickupItem = async (id) => {
-        try {
-            await axios.put(`http://localhost:5000/api/inventory/${id}/pickup`);
-            alert("Pickup confirmed! Thank you for reducing waste.");
-            fetchDonations(); // This will remove the item from the map entirely
-        } catch (error) { console.error("Error picking up item", error); }
-    };
-
-    return (
-        <div className="min-h-screen bg-gray-100 p-8">
-            <header className="mb-6 text-center">
-                <h1 className="text-4xl font-bold text-blue-600">NGO Operations Map</h1>
-                <p className="text-gray-600">Locate, reserve, and pick up local food surplus</p>
-            </header>
-
-            <div className="max-w-6xl mx-auto bg-white p-4 rounded-lg shadow-md border border-gray-200">
-                <div style={{ height: '600px', width: '100%' }}>
-                    <MapContainer center={[28.6139, 77.2090]} zoom={12} scrollWheelZoom={true} style={{ height: '100%', width: '100%', zIndex: 10 }}>
-                        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                        <LocationMarker />
-                        
-                        {donations.map((item) => (
-                            <Marker key={item._id} position={[item.location.lat, item.location.lng]}>
-                                <Popup>
-                                    <div className="text-center p-2 min-w-[150px]">
-                                        <h3 className="font-bold text-lg mb-1">{item.name}</h3>
-                                        <div className="text-sm text-gray-600 mb-2">
-                                            <p>Qty: {item.quantity}</p>
-                                            <p className="text-red-500">Exp: {new Date(item.expiryDate).toLocaleDateString()}</p>
-                                        </div>
-                                        
-                                        {item.status === 'Available' ? (
-                                            <button onClick={() => reserveItem(item._id)} className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 text-sm font-semibold w-full transition">
-                                                Reserve Now
-                                            </button>
-                                        ) : (
-                                            <div className="space-y-2">
-                                                <div className="bg-yellow-100 text-yellow-800 text-xs py-1 rounded font-bold border border-yellow-300">
-                                                    Currently Reserved
-                                                </div>
-                                                <button onClick={() => pickupItem(item._id)} className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 text-sm font-semibold w-full transition shadow-md">
-                                                    Confirm Pickup
-                                                </button>
-                                            </div>
-                                        )}
-                                    </div>
-                                </Popup>
-                            </Marker>
-                        ))}
-                    </MapContainer>
-                </div>
-            </div>
-        </div>
+  const handleSearch = () => {
+    const item = items.find(
+      i =>
+        i.place.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        i.name.toLowerCase().includes(searchTerm.toLowerCase())
     );
-}
+    if (item) {
+      setSelectedLocation(item.location);
+    } else {
+      alert("No matching location found");
+    }
+  };
 
-export default NgoMap;
+  return (
+    <div className="p-6 space-y-6">
+      <h1 className="text-2xl font-bold text-blue-600">NGO Map Portal</h1>
+
+      {/* Dropdown */}
+      <select
+        onChange={(e) => {
+          const item = items.find(i => i.place === e.target.value);
+          if (item) setSelectedLocation(item.location);
+        }}
+        className="border px-4 py-2 rounded"
+      >
+        <option value="">Select a location</option>
+        {items.map(item => (
+          <option key={item._id} value={item.place}>{item.place}</option>
+        ))}
+      </select>
+
+      {/* Search box */}
+      <div className="flex space-x-2 mt-4">
+        <input
+          type="text"
+          placeholder="Search by place or item..."
+          value={searchTerm}
+          onChange={e => setSearchTerm(e.target.value)}
+          className="border px-4 py-2 rounded flex-1"
+        />
+        <button
+          onClick={handleSearch}
+          className="bg-green-600 text-white px-4 py-2 rounded"
+        >
+          Search
+        </button>
+      </div>
+
+      {/* Map */}
+      <MapContainer center={[30.3165, 78.0322]} zoom={12} style={{ height: "500px" }}>
+        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+        {selectedLocation && <AutoZoom location={selectedLocation} />}
+        {items.map(item => (
+          <Marker key={item._id} position={[item.location.lat, item.location.lng]}>
+            <Popup>
+              <strong>{item.name}</strong> <br />
+              {item.place}, {item.district}, {item.state}
+            </Popup>
+          </Marker>
+        ))}
+      </MapContainer>
+    </div>
+  );
+}

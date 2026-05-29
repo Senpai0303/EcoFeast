@@ -1,124 +1,150 @@
-import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import React, { useEffect, useState } from "react";
+import InventoryCard from "../components/InventoryCard";
+import Analytics from "../components/Analytics";
 
-function DonorDashboard() {
-  const [inventory, setInventory] = useState([]);
-  const [newItemName, setNewItemName] = useState('');
+// Simple notification fallback
+const notifySuccess = (msg) => alert(msg);
+const notifyError = (msg) => alert(msg);
+
+export default function DonorDashboard() {
+  const [items, setItems] = useState([]);
+  const [activeTab, setActiveTab] = useState("inventory");
+
+  // Recipe generator state
+  const [ingredients, setIngredients] = useState("");
   const [recipe, setRecipe] = useState(null);
-  const [isGenerating, setIsGenerating] = useState(false); // Loading state
+  const [loading, setLoading] = useState(false);
 
-  useEffect(() => { fetchInventory(); }, []);
+  // Fetch inventory
+  useEffect(() => {
+    fetch("http://localhost:5000/api/inventory")
+      .then(res => res.json())
+      .then(data => setItems(data))
+      .catch(() => notifyError("Failed to load inventory"));
+  }, []);
 
-  const fetchInventory = async () => {
+  const reserveItem = async (id) => {
     try {
-      const res = await axios.get('http://localhost:5000/api/inventory');
-      setInventory(res.data);
-    } catch (error) { console.error("Error fetching data", error); }
+      const res = await fetch(`http://localhost:5000/api/inventory/${id}/reserve`, { method: "PUT" });
+      const updated = await res.json();
+      setItems(items.map(i => i._id === id ? updated : i));
+      notifySuccess("Item reserved successfully!");
+    } catch {
+      notifyError("Failed to reserve item");
+    }
   };
 
-  const addItem = async (e) => {
-    e.preventDefault();
-    
-    // Get user's real location before saving
-    if ("geolocation" in navigator) {
-      navigator.geolocation.getCurrentPosition(async (position) => {
-        try {
-          await axios.post('http://localhost:5000/api/inventory', {
-            name: newItemName,
-            quantity: 1,
-            expiryDate: new Date(Date.now() + 86400000 * 3),
-            location: {
-              lat: position.coords.latitude,
-              lng: position.coords.longitude
-            }
-          });
-          setNewItemName('');
-          fetchInventory();
-          alert("Item added to the marketplace!");
-        } catch (error) { console.error("Error adding item", error); }
-      }, (error) => {
-        alert("Please enable location services to donate items.");
-      });
-    } else {
-      alert("Geolocation is not supported by your browser.");
+  const pickupItem = async (id) => {
+    try {
+      const res = await fetch(`http://localhost:5000/api/inventory/${id}/pickup`, { method: "PUT" });
+      const updated = await res.json();
+      setItems(items.map(i => i._id === id ? updated : i));
+      notifySuccess("Item picked up successfully!");
+    } catch {
+      notifyError("Failed to pick up item");
     }
   };
 
   const generateRecipe = async () => {
-    setIsGenerating(true);
-    try {
-      const ingredients = inventory.map(item => item.name);
-      
-      // Safety check!
-      if (ingredients.length === 0) {
-          alert("Please add at least one item to your pantry first!");
-          setIsGenerating(false);
-          return;
-      }
-
-      const res = await axios.post('http://localhost:5000/api/recipes/generate', { ingredients });
-      
-      console.log("Success! Received from AI:", res.data); // This logs the data so we can see it
-      setRecipe(res.data);
-      
-    } catch (error) {
-      // This will give us the exact error message from the backend
-      const errorMessage = error.response ? error.response.data.error : error.message;
-      console.error("Error generating recipe:", errorMessage);
-      alert(`AI Error: ${errorMessage}`); 
+    if (!ingredients.trim()) {
+      notifyError("Please enter some ingredients!");
+      return;
     }
-    setIsGenerating(false);
+    setLoading(true);
+    try {
+      const res = await fetch("http://localhost:5000/api/recipes/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ingredients: ingredients.split(",") }),
+      });
+      const data = await res.json();
+      setRecipe(data);
+      notifySuccess("Recipe generated successfully!");
+    } catch {
+      notifyError("Failed to generate recipe");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
-      <header className="mb-8 text-center">
-        <h1 className="text-4xl font-bold text-green-600">Donor Dashboard</h1>
-        <p className="text-gray-600">Manage your pantry and reduce waste</p>
-      </header>
+    <div className="flex h-screen">
+      {/* Sidebar */}
+      <aside className="w-64 bg-green-700 text-white p-6 space-y-4">
+        <h2 className="text-xl font-bold">Donor Menu</h2>
+        <button
+          onClick={() => setActiveTab("inventory")}
+          className={`block w-full text-left px-4 py-2 rounded ${activeTab === "inventory" ? "bg-green-900" : ""}`}
+        >
+          Inventory
+        </button>
+        <button
+          onClick={() => setActiveTab("analytics")}
+          className={`block w-full text-left px-4 py-2 rounded ${activeTab === "analytics" ? "bg-green-900" : ""}`}
+        >
+          Analytics
+        </button>
+        <button
+          onClick={() => setActiveTab("recipes")}
+          className={`block w-full text-left px-4 py-2 rounded ${activeTab === "recipes" ? "bg-green-900" : ""}`}
+        >
+          Recipe Generator
+        </button>
+      </aside>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-6xl mx-auto">
-        <div className="bg-white p-6 rounded-lg shadow-md border-t-4 border-green-500">
-          <h2 className="text-2xl font-semibold mb-4 border-b pb-2">Log New Item</h2>
-          <form onSubmit={addItem} className="mb-4 flex gap-2">
-            <input type="text" value={newItemName} onChange={(e) => setNewItemName(e.target.value)} placeholder="E.g., Apples" className="border border-gray-300 p-2 rounded w-full focus:outline-none focus:ring-2 focus:ring-green-400" required />
-            <button type="submit" className="bg-green-500 text-white px-6 py-2 rounded hover:bg-green-600 transition font-bold shadow-sm">Donate</button>
-          </form>
-          
-          <h3 className="font-semibold text-gray-700 mt-6 mb-2">Active Inventory</h3>
-          <ul className="space-y-2">
-            {inventory.map((item) => (
-              <li key={item._id} className={`flex justify-between items-center p-3 rounded border ${item.status === 'Reserved' ? 'bg-yellow-50 border-yellow-200' : 'bg-gray-50'}`}>
-                <span className="font-medium flex items-center gap-2">
-                    {item.name} 
-                    {item.status === 'Reserved' && <span className="text-xs bg-yellow-200 text-yellow-800 px-2 py-1 rounded-full">Reserved by NGO</span>}
-                </span>
-                <span className="text-sm text-red-500 font-semibold">Exp: {new Date(item.expiryDate).toLocaleDateString()}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        <div className="bg-white p-6 rounded-lg shadow-md border-t-4 border-blue-500">
-          <h2 className="text-2xl font-semibold mb-4 border-b pb-2">AI Chef</h2>
-          <button 
-            onClick={generateRecipe} 
-            disabled={isGenerating || inventory.length === 0}
-            className={`w-full text-white px-4 py-3 rounded-lg transition mb-4 font-semibold shadow ${isGenerating ? 'bg-gray-400' : 'bg-blue-500 hover:bg-blue-600'}`}
-          >
-            {isGenerating ? 'Cooking up a recipe...' : 'Generate Recipe from Inventory'}
-          </button>
-          
-          {recipe && (
-            <div className="bg-blue-50 p-5 rounded border border-blue-200 mt-4 animate-fade-in">
-              <h3 className="font-bold text-xl text-blue-800 mb-2">{recipe.recipeName}</h3>
-              <p className="text-gray-700 whitespace-pre-line leading-relaxed">{recipe.instructions}</p>
+      {/* Main Content */}
+      <main className="flex-1 p-6 overflow-y-auto">
+        {activeTab === "inventory" && (
+          <>
+            <h1 className="text-2xl font-bold text-accent mb-4">Inventory</h1>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {items.map(item => (
+                <InventoryCard
+                  key={item._id}
+                  item={item}
+                  onReserve={reserveItem}
+                  onPickup={pickupItem}
+                />
+              ))}
             </div>
-          )}
-        </div>
-      </div>
+          </>
+        )}
+
+        {activeTab === "analytics" && (
+          <>
+            <h1 className="text-2xl font-bold text-accent mb-4">Analytics</h1>
+            <Analytics items={items} />
+          </>
+        )}
+
+        {activeTab === "recipes" && (
+          <>
+            <h1 className="text-2xl font-bold text-purple-600 mb-4">AI Recipe Generator</h1>
+            <div className="flex gap-4 mb-4">
+              <input
+                type="text"
+                placeholder="Enter ingredients (comma separated)"
+                value={ingredients}
+                onChange={(e) => setIngredients(e.target.value)}
+                className="flex-grow border rounded px-4 py-2"
+              />
+              <button
+                onClick={generateRecipe}
+                disabled={loading}
+                className="bg-purple-600 text-white px-6 py-2 rounded"
+              >
+                {loading ? "Generating..." : "Generate Recipe"}
+              </button>
+            </div>
+            {recipe && (
+              <div className="bg-white shadow-lg rounded-lg p-6 space-y-4">
+                <h2 className="text-xl font-bold text-purple-600">{recipe.recipeName}</h2>
+                <pre className="whitespace-pre-wrap text-gray-700">{recipe.instructions}</pre>
+              </div>
+            )}
+          </>
+        )}
+      </main>
     </div>
   );
 }
-
-export default DonorDashboard;
